@@ -1,0 +1,270 @@
+{
+  "project": "GammaHedge",
+  "description": "EVM-based delta-neutral coverage protocol with senior/junior capital structure and prediction market hedging",
+  "version": "0.2.0",
+  "lastUpdated": "2025-12-10",
+  
+  "architecture_update": {
+    "changes": "Added ReinsuranceVault for senior/junior structure, comprehensive security audit completed",
+    "new_components": [
+      "ReinsuranceVault.sol - Senior capital pool with X% drawdown trigger",
+      "GammaHedgeRiskEngine - Off-chain risk parameter optimization",
+      "Multi-oracle consensus mechanism for event resolution",
+      "Atomic loss allocation between junior/senior pools"
+    ],
+    "security_status": "CRITICAL - Requires fixes before deployment"
+  },
+
+  "security_audit_summary": {
+    "audit_date": "2025-12-10", 
+    "issues_found": {
+      "critical": 4,
+      "high": 4, 
+      "medium": 6,
+      "low": 2
+    },
+    "priority_fixes": [
+      "Reinsurance drain attack prevention - CoveragePool:296",
+      "Race conditions in loss allocation - ProductState.realizedLoss", 
+      "Integer overflow protection - premium calculations",
+      "Oracle manipulation via single point of failure",
+      "Missing access controls on CoverageToken mint/burn"
+    ],
+    "deployment_blockers": [
+      "Add ReentrancyGuard to all external calls",
+      "Implement SafeMath or 0.8.0+ overflow checks", 
+      "Multi-oracle consensus mechanism",
+      "Comprehensive input validation",
+      "Emergency pause functionality"
+    ]
+  },
+  "tasks": [
+    {
+      "tier": 1,
+      "name": "Project Setup & Infrastructure",
+      "description": "Initialize project structure, tooling, and deployment infrastructure",
+      "priority": "immediate",
+      "status": "pending",
+      "subtasks": [
+        "Set up monorepo structure (app, api, contracts)",
+        "Configure TypeScript, linting, and formatting",
+        "Set up Docker and docker-compose for local development",
+        "Configure CI/CD pipeline",
+        "Set up environment management (.env templates)",
+        "Initialize Git repository and branching strategy"
+      ]
+    },
+    {
+      "tier": 1,
+      "name": "API Layer - Core Infrastructure",
+      "description": "Build backend API for protocol operations, market data, and user management",
+      "priority": "immediate",
+      "status": "pending",
+      "components": [
+        {
+          "name": "API Setup",
+          "subtasks": [
+            "Initialize Node.js/Express (or NestJS) API server",
+            "Set up PostgreSQL database with Prisma/TypeORM",
+            "Configure Redis for caching and session management",
+            "Implement JWT authentication and authorization",
+            "Set up API documentation (Swagger/OpenAPI)",
+            "Configure logging and monitoring (Winston/Datadog)"
+          ]
+        },
+        {
+          "name": "Polymarket Integration Service",
+          "subtasks": [
+            "Build Polymarket API client wrapper",
+            "Implement event fetching and indexing (macro, politics, crypto)",
+            "Build real-time price feed listener",
+            "Create position tracking service",
+            "Implement market data caching layer",
+            "Build webhook handler for market updates"
+          ]
+        },
+        {
+          "name": "Hedge Engine Service",
+          "subtasks": [
+            "Design hedge calculation engine (K·p·h formula)",
+            "Implement YES/NO token purchase logic",
+            "Build rebalancing scheduler and logic",
+            "Create position monitoring service",
+            "Implement hedge ratio optimization",
+            "Build PnL tracking and reporting"
+          ]
+        },
+        {
+          "name": "Coverage Management API",
+          "subtasks": [
+            "POST /coverage/quote - Calculate premium for coverage",
+            "POST /coverage/purchase - Buy coverage (mint tokens)",
+            "GET /coverage/:id - Get coverage details",
+            "GET /coverage/user/:address - List user's coverage positions",
+            "POST /coverage/claim - Submit claim for payout",
+            "GET /coverage/events - List available events"
+          ]
+        },
+        {
+          "name": "Pool Management API",
+          "subtasks": [
+            "POST /pool/deposit - LP deposit USDC",
+            "POST /pool/withdraw - LP withdraw + shares",
+            "GET /pool/stats - Pool TVL, APY, utilization",
+            "GET /pool/performance - Historical performance data",
+            "GET /pool/positions - Current hedge positions",
+            "GET /pool/reserves - Reserve levels per product"
+          ]
+        },
+        {
+          "name": "Oracle & Settlement Service",
+          "subtasks": [
+            "Build UMA/Chainlink oracle adapter",
+            "Implement event resolution listener",
+            "Create settlement execution service",
+            "Build claim validation logic",
+            "Implement payout distribution engine",
+            "Add dispute resolution handling"
+          ]
+        }
+      ]
+    },
+    {
+      "tier": 1,
+      "name": "Smart Contracts - EVM Protocol",
+      "description": "Core Solidity contracts for coverage, hedging, and liquidity management",
+      "priority": "immediate",
+      "status": "pending",
+      "components": [
+        {
+          "name": "Core Contracts",
+          "subtasks": [
+            "CoveragePool.sol - ERC-4626 vault for USDC (DESIGNED - needs security fixes)",
+            "ReinsuranceVault.sol - Senior capital pool with X% drawdown trigger (DESIGNED - needs security fixes)", 
+            "CoverageToken.sol - ERC-1155 for coverage positions (interface defined)",
+            "HedgeEngine.sol - Manages YES/NO token positions (interface defined)",
+            "VenueAdapter.sol - Interface for prediction markets (interface defined)",
+            "OracleAdapter.sol - UMA/Chainlink integration (interface defined)",
+            "RiskParamRegistry.sol - Store h, r, f, K per product",
+            "GammaHedgeRiskEngine - Off-chain service for risk parameter optimization (spec designed)"
+          ]
+        },
+        {
+          "name": "Contract Testing & Deployment",
+          "subtasks": [
+            "Write comprehensive unit tests (Foundry/Hardhat)",
+            "Implement integration tests with mock oracles",
+            "Add fuzz testing for edge cases",
+            "Run security audit (Certora/Trail of Bits)",
+            "Deploy to testnet (Sepolia/Base Sepolia)",
+            "Set up deployment scripts and verification",
+            "Deploy to mainnet (Base/Arbitrum)"
+          ]
+        }
+      ]
+    },
+    {
+      "tier": 1,
+      "name": "Frontend App",
+      "description": "User-facing web application for coverage purchase and LP management",
+      "priority": "immediate",
+      "status": "pending",
+      "components": [
+        {
+          "name": "App Setup",
+          "subtasks": [
+            "Initialize Next.js 14+ with App Router",
+            "Set up TailwindCSS + shadcn/ui components",
+            "Configure wagmi + viem for web3 integration",
+            "Set up RainbowKit or ConnectKit for wallet connection",
+            "Configure React Query for API data fetching",
+            "Set up state management (Zustand/Jotai)"
+          ]
+        },
+        {
+          "name": "Coverage Marketplace UI",
+          "subtasks": [
+            "Build event browser/explorer page",
+            "Create coverage product cards with pricing",
+            "Implement coverage purchase flow",
+            "Build premium calculator with live quotes",
+            "Add coverage position dashboard",
+            "Implement claims submission interface"
+          ]
+        },
+        {
+          "name": "LP Dashboard",
+          "subtasks": [
+            "Build deposit/withdraw interface",
+            "Create pool stats dashboard (TVL, APY, utilization)",
+            "Implement portfolio performance charts",
+            "Add current positions and hedge status view",
+            "Build reserve levels and risk metrics display",
+            "Add historical returns and analytics"
+          ]
+        },
+        {
+          "name": "Market Data & Analytics",
+          "subtasks": [
+            "Build real-time event feed from Polymarket",
+            "Create price charts for YES/NO tokens",
+            "Implement PnL tracking and visualization",
+            "Add risk metrics dashboard (VaR, exposure)",
+            "Build hedge ratio and rebalancing status display",
+            "Create protocol-wide analytics page"
+          ]
+        }
+      ]
+    },
+    {
+      "tier": 1,
+      "name": "Capital Efficiency Layer (Gondor Clone)",
+      "description": "Optimize capital efficiency on Polymarket positions",
+      "priority": "high",
+      "status": "pending",
+      "subtasks": [
+        "Research Gondor protocol architecture",
+        "Design capital efficiency strategies for Polymarket",
+        "Implement position netting and optimization",
+        "Build leverage/margin management system",
+        "Create cross-collateralization logic",
+        "Integrate with main hedge engine",
+        "Add monitoring and alerting for efficiency metrics"
+      ]
+    }
+  ],
+  "technical_notes": {
+    "hedging_formula": "Premium π = K·p·h + K·r + K·f",
+    "senior_junior_structure": {
+      "junior_pool": "CoveragePool - LPs bear first X% of losses (poolRetentionWad)",
+      "senior_pool": "ReinsuranceVault - covers losses above X% up to per-event limit", 
+      "trigger_formula": "Losses > preEventAssets * poolRetentionWad",
+      "allocation_logic": "primaryPortion vs reinsuredPortion per claim"
+    },
+    "parameters": {
+      "K": "Coverage notional (e.g., 100 USDC)",
+      "p": "Market probability (from Polymarket YES price)",
+      "h": "Hedge ratio (0-1, fraction of liability to hedge)", 
+      "r": "Reserve fraction (1-3%, builds safety margin)",
+      "f": "Protocol fee (0.5-1%+, for treasury)",
+      "X": "Pool retention (% drawdown before reinsurance kicks in)"
+    },
+    "delta_neutral_mechanics": {
+      "hedge_target": "h * K * units of YES tokens per coverage sold",
+      "hedge_cost": "K * marketPrice * hedgeRatio per unit",
+      "rebalancing": "Keeper bot adjusts YES holdings as market price moves"
+    },
+    "risk_engine": {
+      "inputs": "Macro regime, correlations, VaR targets, pool size",
+      "outputs": "JSON config with h, r, f, X parameters per product", 
+      "update_frequency": "Daily or on significant regime changes"
+    },
+    "architecture": {
+      "frontend": "Next.js 14 + TailwindCSS + wagmi",
+      "api": "Node.js/NestJS + PostgreSQL + Redis", 
+      "contracts": "Solidity + Foundry + ERC-4626 + ReinsuranceVault",
+      "risk_engine": "TypeScript service + JSON config output",
+      "deployment": "Docker + DigitalOcean + Base/Arbitrum"
+    }
+  }
+}
