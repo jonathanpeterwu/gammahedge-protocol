@@ -43,6 +43,19 @@ interface IReinsuranceVault {
     );
 }
 
+interface ICircuitBreaker {
+    function checkBreaker(uint256 breakerId) external view;
+    function updateRiskMetrics(
+        uint256 poolLossRatio,
+        uint256 dailyLossAbsolute,
+        uint256 oracleFailureRate,
+        uint256 avgHedgeSlippage,
+        uint256 volumeMultiplier,
+        uint256 hedgeCorrelation,
+        uint256 marketLiquidity
+    ) external;
+}
+
 /**
  * @title CoveragePool
  * @notice ERC4626-style pool for coverage provision with delta-neutral hedging
@@ -68,6 +81,7 @@ contract CoveragePool is ReentrancyGuard, Pausable, Ownable {
     IOracleAdapter public immutable oracle;
     IHedgeEngine public immutable hedgeEngine;
     IReinsuranceVault public immutable reinsuranceVault;
+    ICircuitBreaker public immutable circuitBreaker;
 
     address public treasury;
 
@@ -122,7 +136,9 @@ contract CoveragePool is ReentrancyGuard, Pausable, Ownable {
     event EventSettled(bytes32 indexed eventId, bool outcomeYes, uint256 hedgePayout);
     event CoverageClaimed(bytes32 indexed eventId, address indexed user, uint256 units, uint256 payout);
     event HedgeRebalanced(bytes32 indexed eventId, uint256 targetAmount, uint256 actualCost);
+    event HedgeFailed(bytes32 indexed eventId, uint256 targetAmount, string reason);
     event EmergencyStop(string reason, uint256 poolLoss);
+    event ReinsuranceFallback(bytes32 indexed eventId, uint256 amount, string reason);
 
     // Errors
     error InvalidParameters();
@@ -155,6 +171,7 @@ contract CoveragePool is ReentrancyGuard, Pausable, Ownable {
         address _oracle,
         address _hedgeEngine,
         address _reinsuranceVault,
+        address _circuitBreaker,
         address _treasury
     ) {
         usdc = IERC20(_usdc);
@@ -162,6 +179,7 @@ contract CoveragePool is ReentrancyGuard, Pausable, Ownable {
         oracle = IOracleAdapter(_oracle);
         hedgeEngine = IHedgeEngine(_hedgeEngine);
         reinsuranceVault = IReinsuranceVault(_reinsuranceVault);
+        circuitBreaker = ICircuitBreaker(_circuitBreaker);
         treasury = _treasury;
     }
 
@@ -303,13 +321,35 @@ contract CoveragePool is ReentrancyGuard, Pausable, Ownable {
             usdc.safeTransfer(treasury, protocolFee);
         }
 
-        // Execute hedge
+        // Execute hedge with try/catch for safety
         if (hedgeBudget > 0) {
             uint256 targetYesAmount = config.hedgeRatioWad.mul(config.strike).mul(units).div(WAD).div(config.strike);
-            uint256 actualCost = hedgeEngine.buyYes(eventId, targetYesAmount, hedgeBudget, address(this));
-            state.hedgePosition = state.hedgePosition.add(targetYesAmount);
             
-            emit HedgeRebalanced(eventId, targetYesAmount, actualCost);
+            try hedgeEngine.buyYes(eventId, targetYesAmount, hedgeBudget, address(this)) returns (uint256 actualCost) {
+                state.hedgePosition = state.hedgePosition.add(targetYesAmount);
+                
+                // Calculate slippage and update circuit breaker
+                uint256 expectedCost = targetYesAmount.mul(marketPrice).div(WAD);
+                uint256 slippage = actualCost > expectedCost ? 
+                    actualCost.sub(expectedCost).mul(WAD).div(expectedCost) : 0;
+                
+                _updateCircuitBreakerMetrics(slippage);
+                
+                emit HedgeRebalanced(eventId, targetYesAmount, actualCost);
+            } catch Error(string memory reason) {
+                // Log hedge failure but continue with coverage sale
+                emit HedgeFailed(eventId, targetYesAmount, reason);
+                
+                // Increase reserve allocation to compensate for lack of hedge
+                uint256 extraReserve = hedgeBudget.mul(50).div(100); // 50% of hedge budget to reserves
+                state.reserves = state.reserves.add(extraReserve);
+            } catch {
+                // Generic catch for low-level failures
+                emit HedgeFailed(eventId, targetYesAmount, "Unknown hedge failure");
+                
+                // Conservative approach: add full hedge budget to reserves
+                state.reserves = state.reserves.add(hedgeBudget);
+            }
         }
 
         // Mint coverage tokens
@@ -392,14 +432,42 @@ contract CoveragePool is ReentrancyGuard, Pausable, Ownable {
         // Update realized loss atomically
         state.realizedLoss = newTotalLoss;
 
-        // Execute payments
+        // Execute payments with fallback mechanisms
         if (reinsuredPortion > 0) {
             // Validate reinsurance layer before calling
             (uint256 limit, uint256 used, uint256 available, bool active) = 
                 reinsuranceVault.getLayerInfo(eventId);
             
-            require(active && available >= reinsuredPortion, "Insufficient reinsurance");
-            reinsuranceVault.coverLoss(eventId, reinsuredPortion);
+            if (active && available >= reinsuredPortion) {
+                try reinsuranceVault.coverLoss(eventId, reinsuredPortion) {
+                    // Success - reinsurance covered the loss
+                } catch Error(string memory reason) {
+                    // Reinsurance failed - use pool reserves as fallback
+                    emit ReinsuranceFallback(eventId, reinsuredPortion, reason);
+                    
+                    // Reduce payout if insufficient pool assets
+                    uint256 availableAssets = totalAssets();
+                    if (availableAssets < payout) {
+                        // Pro-rata payout based on available assets
+                        payout = availableAssets.mul(90).div(100); // Leave 10% buffer
+                    }
+                } catch {
+                    // Generic reinsurance failure
+                    emit ReinsuranceFallback(eventId, reinsuredPortion, "Reinsurance system failure");
+                    
+                    // Emergency: reduce payout and trigger circuit breaker
+                    payout = primaryPortion; // Only pay primary portion
+                    _triggerEmergencyStop("Reinsurance system failure");
+                }
+            } else {
+                // Reinsurance unavailable - fallback to pool assets
+                emit ReinsuranceFallback(eventId, reinsuredPortion, "Reinsurance layer inactive or insufficient");
+                
+                uint256 availableAssets = totalAssets();
+                if (availableAssets < payout) {
+                    payout = availableAssets.mul(90).div(100); // Conservative payout
+                }
+            }
         }
 
         // Final solvency check
@@ -425,6 +493,54 @@ contract CoveragePool is ReentrancyGuard, Pausable, Ownable {
     function setTreasury(address _treasury) external onlyOwner {
         require(_treasury != address(0), "Invalid treasury");
         treasury = _treasury;
+    }
+
+    function _updateCircuitBreakerMetrics(uint256 hedgeSlippage) internal {
+        uint256 poolLossRatio = _calculatePoolLossRatio();
+        uint256 dailyLoss = _calculateDailyLoss();
+        
+        try circuitBreaker.updateRiskMetrics(
+            poolLossRatio,
+            dailyLoss,
+            0, // Oracle failure rate (managed by OracleAdapter)
+            hedgeSlippage,
+            0, // Volume multiplier (to be implemented)
+            0, // Hedge correlation (to be implemented)
+            0  // Market liquidity (to be implemented)
+        ) {
+            // Successfully updated metrics
+        } catch {
+            // Circuit breaker update failed - continue operation but log
+            emit EmergencyStop("Circuit breaker update failed", poolLossRatio);
+        }
+    }
+
+    function _calculatePoolLossRatio() internal view returns (uint256) {
+        uint256 totalAssets_ = totalAssets();
+        if (totalAssets_ == 0) return 0;
+        
+        // Simple loss ratio: (total liability - assets) / initial assets
+        // This is simplified - production would track historical assets
+        if (totalLiability > totalAssets_) {
+            uint256 loss = totalLiability.sub(totalAssets_);
+            return loss.mul(WAD).div(totalLiability);
+        }
+        return 0;
+    }
+
+    function _calculateDailyLoss() internal view returns (uint256) {
+        // Simplified daily loss calculation
+        // Production would track losses over rolling 24h window
+        uint256 totalAssets_ = totalAssets();
+        if (totalLiability > totalAssets_) {
+            return totalLiability.sub(totalAssets_);
+        }
+        return 0;
+    }
+
+    function _triggerEmergencyStop(string memory reason) internal {
+        _pause();
+        emit EmergencyStop(reason, _calculatePoolLossRatio());
     }
 
     // ========== View Functions ==========
